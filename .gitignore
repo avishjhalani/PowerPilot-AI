@@ -1,0 +1,40 @@
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+
+# Environment & Secrets
+.env
+.env.local
+*.key
+
+# Temporary Pipeline Artifacts
+_temp_cleaner_runner.py
+data/cleaned/_temp_*
+
+# Power BI Project Local User Caches & ABF
+*.abf
+.pbi/localSettings.json
+.pbi/editorSettings.json
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.vite/
+
+# Generated outputs
+data/cleaned/*.parquet
+output/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
