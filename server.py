@@ -82,7 +82,7 @@ async def run_pipeline(
     user_intent = prompt or "Analyze revenue and profit margin trends by region."
 
     # Determine input dataset
-    if source_type == "custom" and file is not None:
+    if file is not None and file.filename:
         target_path = RAW_DATA_DIR / file.filename
         content = await file.read()
         target_path.write_bytes(content)
@@ -90,10 +90,14 @@ async def run_pipeline(
         filename = file.filename
     else:
         sample_file = RAW_DATA_DIR / "messy_sales_500k.csv"
+        if not sample_file.exists() or sample_file.stat().st_size < 1000:
+            fallback = RAW_DATA_DIR / "urbanthreads_q4.csv"
+            if fallback.exists():
+                sample_file = fallback
         if not sample_file.exists():
-            raise HTTPException(status_code=400, detail="Sample dataset messy_sales_500k.csv not found")
+            raise HTTPException(status_code=400, detail="Sample dataset not found on server")
         active_file_path = sample_file
-        filename = "messy_sales_500k.csv"
+        filename = sample_file.name
 
     # Step 1: Profiler
     profiler = StreamingProfiler(sample_size=15)

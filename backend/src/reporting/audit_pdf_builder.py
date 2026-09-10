@@ -30,18 +30,28 @@ class AuditPDF(FPDF):
         ]
 
         for reg, bld, itl, bitl in font_pairs:
-            if reg.exists() and bld.exists():
+            if reg.exists():
                 try:
                     self.add_font("CustomUnicode", "", str(reg))
-                    self.add_font("CustomUnicode", "B", str(bld))
-                    if itl.exists():
-                        self.add_font("CustomUnicode", "I", str(itl))
-                    if bitl.exists():
-                        self.add_font("CustomUnicode", "BI", str(bitl))
+                    self.add_font("CustomUnicode", "B", str(bld if bld.exists() else reg))
+                    self.add_font("CustomUnicode", "I", str(itl if itl.exists() else reg))
+                    self.add_font("CustomUnicode", "BI", str(bitl if (bitl.exists() and bld.exists()) else (bld if bld.exists() else reg)))
                     self.font_family = "CustomUnicode"
                     break
                 except Exception:
                     self.font_family = "Helvetica"
+
+    def set_font(self, family=None, style="", size=0):
+        try:
+            super().set_font(family or self.font_family, style, size)
+        except Exception:
+            try:
+                super().set_font(family or self.font_family, "", size)
+            except Exception:
+                try:
+                    super().set_font("Helvetica", style, size)
+                except Exception:
+                    super().set_font("Helvetica", "", size)
 
     def header(self):
         self.set_fill_color(15, 23, 42)  # Dark slate
