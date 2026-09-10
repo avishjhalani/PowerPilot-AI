@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Dict, Any, List
+import base64
+import tempfile
 import duckdb
 
 class TMDLBuilder:
@@ -135,12 +137,26 @@ class TMDLBuilder:
 
             table_lines.append(f"\t\tformatString: \"{fmt}\"\n")
 
-        # Partition (Power Query M expression loading parquet)
+        # Read parquet binary and encode to base64 for self-contained zero-configuration portability
+        parquet_bytes = parquet_path.read_bytes()
+        if len(parquet_bytes) > 8 * 1024 * 1024:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            con = duckdb.connect(database=":memory:")
+            con.execute(f"COPY (SELECT * FROM read_parquet('{parquet_str}') LIMIT 25000) TO '{str(tmp_path).replace(chr(92), '/')}' (FORMAT PARQUET)")
+            con.close()
+            parquet_bytes = tmp_path.read_bytes()
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+        b64_parquet = base64.b64encode(parquet_bytes).decode("ascii")
+
+        # Partition (Power Query M expression loading embedded parquet directly into memory)
         table_lines.append(f"\tpartition '{table_name}-Partition' = m")
         table_lines.append("\t\tmode: import")
         table_lines.append("\t\tsource =")
         table_lines.append("\t\t\tlet")
-        table_lines.append(f'\t\t\t\tSource = Parquet.Document(File.Contents("{parquet_str}"))')
+        table_lines.append(f'\t\t\t\tSource = Parquet.Document(Binary.Buffer(Binary.FromText("{b64_parquet}", BinaryEncoding.Base64)))')
         table_lines.append("\t\t\tin")
         table_lines.append("\t\t\t\tSource\n")
 

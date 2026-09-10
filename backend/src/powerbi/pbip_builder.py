@@ -14,6 +14,8 @@ if sys.platform == "win32":
 
 import json
 import shutil
+import base64
+import tempfile
 import duckdb
 from typing import Dict, Any, List, Optional
 from backend.src.config import PBIP_OUTPUT_DIR
@@ -73,9 +75,23 @@ class PBIPBuilder:
                 "summarizeBy": "none" if "ID" in col_name.upper() else "default"
             })
 
-        # Power Query M expression to load Parquet directly
+        # Read parquet binary and encode to base64 for self-contained zero-configuration portability
+        parquet_bytes = parquet_path.read_bytes()
+        if len(parquet_bytes) > 8 * 1024 * 1024:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                tmp_path = Path(tmp.name)
+            con = duckdb.connect(database=":memory:")
+            con.execute(f"COPY (SELECT * FROM read_parquet('{parquet_str}') LIMIT 25000) TO '{str(tmp_path).replace(chr(92), '/')}' (FORMAT PARQUET)")
+            con.close()
+            parquet_bytes = tmp_path.read_bytes()
+            if tmp_path.exists():
+                tmp_path.unlink()
+
+        b64_parquet = base64.b64encode(parquet_bytes).decode("ascii")
+
+        # Power Query M expression to load Parquet directly from embedded memory
         m_query = f"""let
-    Source = Parquet.Document(File.Contents("{parquet_str}"))
+    Source = Parquet.Document(Binary.Buffer(Binary.FromText("{b64_parquet}", BinaryEncoding.Base64)))
 in
     Source"""
 
