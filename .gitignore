@@ -27,7 +27,6 @@ data/cleaned/_temp_*
 # Node & Frontend
 node_modules/
 frontend/node_modules/
-frontend/dist/
 .vite/
 
 # Generated outputs
