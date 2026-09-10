@@ -1,8 +1,8 @@
 ---
 title: PowerPilot AI
 emoji: ⚡
-colorFrom: amber
-colorTo: slate
+colorFrom: yellow
+colorTo: blue
 sdk: gradio
 app_file: app.py
 pinned: false
