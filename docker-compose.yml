@@ -1,0 +1,16 @@
+services:
+  powerpilot:
+    build: .
+    ports:
+      - "7860:7860"
+      - "8000:7860"
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - MODEL_NAME=${MODEL_NAME:-openai/gpt-oss-120b}
+      - PORT=7860
+      - HOST=0.0.0.0
+    env_file:
+      - .env
+    volumes:
+      - ./output:/app/output
+    restart: unless-stopped
