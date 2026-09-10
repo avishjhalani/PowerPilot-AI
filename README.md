@@ -10,7 +10,12 @@ pinned: false
 
 # ⚡ Autonomous Big Data & Power BI Agent
 
-An enterprise AI data engineering and business intelligence agent that ingests millions of dirty records, stream-cleans out-of-core on your CPU with sub-second performance, dynamically engineers DAX measures, and compiles fully compliant Microsoft Power BI Project (`.pbip`) dashboards and technical audit PDFs.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-powerpilot--ai.onrender.com-success?style=for-the-badge&logo=render)](https://powerpilot-ai-y758.onrender.com/)
+[![React 19](https://img.shields.io/badge/Frontend-React%2019%20+%20Tailwind-blue?style=for-the-badge&logo=react)](https://powerpilot-ai-y758.onrender.com/)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI%20+%20DuckDB%20+%20Polars-green?style=for-the-badge&logo=fastapi)](https://powerpilot-ai-y758.onrender.com/)
+
+> 🌐 **Live Web Application:** **[https://powerpilot-ai-y758.onrender.com](https://powerpilot-ai-y758.onrender.com/)**  
+> *Ingest dirty CSV/Parquet datasets, stream-clean out-of-core, engineer DAX measures with AI, and download self-contained Power BI (`.pbip`) projects directly from your browser.*
 
 ---
 
@@ -127,9 +132,21 @@ MODEL_NAME=openai/gpt-oss-120b
 
 ## 💻 Usage
 
-### Option A: Command Line Interface (CLI)
+### Option A: Instant Live Web App (No Local Setup Required)
 
-Run the autonomous pipeline directly from the terminal:
+Open the live deployed application directly in your browser:  
+👉 **[https://powerpilot-ai-y758.onrender.com/](https://powerpilot-ai-y758.onrender.com/)**
+
+1. Upload any CSV or Parquet file (or use sample benchmark).
+2. Enter your business discovery request (or let the AI discover insights automatically).
+3. Click **Run Pipeline** and watch real-time telemetry.
+4. Download your zero-configuration **Power BI Desktop (`.pbip`)** project and **Forensic Audit PDF**.
+
+---
+
+### Option B: Command Line Interface (CLI)
+
+Run the autonomous pipeline directly from your local terminal:
 
 ```powershell
 # Standard run with 500k benchmark dataset
@@ -142,7 +159,7 @@ python backend/main.py --input "data/raw/my_dirty_data.csv" --prompt "Focus on r
 python backend/main.py --format tmdl --name "Executive_TMDL_Report"
 ```
 
-### Option B: Modern Full-Stack Web Application (React + shadcn + FastAPI)
+### Option C: Local Full-Stack Web Application (React + FastAPI)
 
 1. Start the FastAPI backend:
 ```powershell
