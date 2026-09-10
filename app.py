@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 from pathlib import Path
 
@@ -9,6 +9,15 @@ if str(BASE_DIR) not in sys.path:
 
 # Import the existing FastAPI server (which mounts frontend/dist on /)
 from server import app as fastapi_app
+
+# ZeroGPU compatibility for Hugging Face Spaces
+try:
+    import spaces
+    @spaces.GPU(duration=1)
+    def dummy_gpu():
+        return None
+except Exception:
+    pass
 
 # Gradio interface mounting
 try:
