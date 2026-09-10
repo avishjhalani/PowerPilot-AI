@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Rounded Squircle Base -->
+  <rect width="64" height="64" rx="16" fill="#0F172A"/>
+  
+  <!-- Subtle Amber Glow Ring -->
+  <circle cx="32" cy="32" r="23" stroke="url(#amberGlow)" stroke-width="2" stroke-dasharray="4 3" opacity="0.4"/>
+  
+  <!-- Primary Orbital Ring -->
+  <ellipse cx="32" cy="32" rx="22" ry="11" transform="rotate(-30 32 32)" stroke="url(#goldGrad)" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- Central Data Nucleus -->
+  <circle cx="32" cy="32" r="7" fill="url(#coreGrad)"/>
+  
+  <!-- Orbiting Data Beacon -->
+  <circle cx="48" cy="23" r="3.5" fill="#FDE68A" stroke="#B45309" stroke-width="1"/>
+
+  <!-- Color Definitions -->
+  <defs>
+    <linearGradient id="goldGrad" x1="10" y1="20" x2="54" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FCD34D"/>
+      <stop offset="0.5" stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#D97706"/>
+    </linearGradient>
+    <linearGradient id="coreGrad" x1="25" y1="25" x2="39" y2="39" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE68A"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="amberGlow" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#0F172A"/>
+    </linearGradient>
+  </defs>
+</svg>
