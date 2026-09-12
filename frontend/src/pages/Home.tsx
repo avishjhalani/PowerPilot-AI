@@ -68,7 +68,8 @@ interface PipelineResult {
   engine_message: string;
   metrics: PipelineMetric[];
   changelog: string[];
-  preview: PreviewRow[];
+  preview_columns?: string[];
+  preview: Record<string, any>[];
   measures: PipelineMeasure[];
 }
 
@@ -244,7 +245,54 @@ export default function Home() {
             <div className="grid gap-6 lg:grid-cols-[1.35fr_.9fr]">
               <div className="card-light overflow-hidden rounded-2xl border border-slate-200 bg-white" data-testid="data-preview-panel">
                 <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5"><div><h3 className="font-heading text-xl font-semibold text-slate-900" data-testid="data-preview-title">Cleaned data preview</h3><p className="mt-1 text-sm text-slate-500" data-testid="data-preview-caption">Top 5 records · normalized schema</p></div><Code2 className="size-5 text-slate-500" /></div>
-                <div className="overflow-x-auto"><table className="w-full text-left font-mono text-xs" data-testid="cleaned-data-table"><thead className="bg-slate-50 text-slate-500"><tr><th className="px-6 py-3.5 font-medium">ORDER_ID</th><th className="px-4 py-3.5 font-medium">CUSTOMER</th><th className="px-4 py-3.5 font-medium">REVENUE</th><th className="px-4 py-3.5 font-medium">DATE</th><th className="px-6 py-3.5 font-medium">REGION</th></tr></thead><tbody className="divide-y divide-slate-200 text-slate-700">{result.preview.map((row) => <tr key={row.order_id} className="transition-colors hover:bg-slate-50" data-testid={`preview-row-${row.order_id}`}><td className="px-6 py-3.5 text-amber-700">{row.order_id}</td><td className="whitespace-nowrap px-4 py-3.5">{row.customer}</td><td className="px-4 py-3.5">{row.revenue}</td><td className="whitespace-nowrap px-4 py-3.5">{row.order_date}</td><td className="px-6 py-3.5">{row.region}</td></tr>)}</tbody></table></div>
+                {(() => {
+                  const cols = result.preview_columns && result.preview_columns.length > 0
+                    ? result.preview_columns
+                    : (result.preview.length > 0
+                        ? Object.keys(result.preview[0])
+                        : ["ORDER_ID", "CUSTOMER", "REVENUE", "DATE", "REGION"]);
+
+                  return (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left font-mono text-xs" data-testid="cleaned-data-table">
+                        <thead className="bg-slate-50 text-slate-500">
+                          <tr>
+                            {cols.map((col, idx) => (
+                              <th
+                                key={col}
+                                className={`py-3.5 font-medium uppercase tracking-wider ${
+                                  idx === 0 ? "px-6" : idx === cols.length - 1 ? "px-6" : "px-4"
+                                }`}
+                              >
+                                {col.replace(/_/g, " ")}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 text-slate-700">
+                          {result.preview.map((row, rIdx) => (
+                            <tr key={rIdx} className="transition-colors hover:bg-slate-50" data-testid={`preview-row-${rIdx}`}>
+                              {cols.map((col, cIdx) => (
+                                <td
+                                  key={col}
+                                  className={`py-3.5 ${
+                                    cIdx === 0
+                                      ? "px-6 font-semibold text-amber-700"
+                                      : cIdx === cols.length - 1
+                                      ? "px-6"
+                                      : "px-4"
+                                  } ${cIdx > 0 ? "whitespace-nowrap" : ""}`}
+                                >
+                                  {row[col] ?? "-"}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="card-light rounded-2xl border border-slate-200 bg-white p-6" data-testid="artifact-panel"><div className="mb-5 flex items-center gap-2.5"><FileArchive className="size-5 text-amber-500" /><div><h3 className="font-heading text-xl font-semibold text-slate-900" data-testid="artifact-title">Artifact center</h3><p className="text-sm text-slate-500" data-testid="artifact-caption">Generated for {result.project_name}</p></div></div><div className="space-y-3"><Button type="button" className="h-11 w-full justify-between bg-amber-500 px-4 text-sm font-semibold text-slate-950 hover:bg-amber-400" onClick={() => handleDownload("project", `${result.project_name}.zip`, "Power BI project")} data-testid="download-project-button">Power BI Project (.zip) <FileDown className="size-4" /></Button><Button type="button" variant="secondary" className="h-11 w-full justify-between border border-slate-300 bg-slate-100 px-4 text-sm text-slate-800 hover:bg-slate-200" onClick={() => handleDownload("audit", `${result.project_name}_audit.pdf`, "Audit report")} data-testid="download-audit-button">Audit Report (PDF) <FileDown className="size-4" /></Button><Button type="button" variant="ghost" className="h-11 w-full justify-between px-4 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900" onClick={() => handleDownload("parquet", `${result.project_name}_cleaned.parquet`, "Cleaned Parquet")} data-testid="download-parquet-button">Cleaned Parquet <FileDown className="size-4" /></Button></div><p className="mt-5 font-mono text-xs leading-6 text-slate-500" data-testid="artifact-note">Artifacts include the semantic model definition, audit metadata, and cleaned columnar output.</p></div>

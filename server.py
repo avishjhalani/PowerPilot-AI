@@ -146,20 +146,31 @@ async def run_pipeline(
         "zip": str(zip_path)
     }
 
-    # Query 5 preview rows from DuckDB
+    # Query 5 preview rows from DuckDB with dynamic schema
     preview_rows = []
+    preview_columns = []
     try:
+        import numpy as np
+        import pandas as pd
         con = duckdb.connect()
         df_prev = con.execute(f"SELECT * FROM read_parquet('{clean_res['output_parquet']}') LIMIT 5").fetchdf()
+        # Select up to top 6 columns for clean, proportional UI rendering
+        preview_columns = list(df_prev.columns[:6])
         for _, r in df_prev.iterrows():
-            preview_rows.append({
-                "order_id": str(r.get("order_id", r.get(df_prev.columns[0], ""))),
-                "customer": str(r.get("customer", r.get(df_prev.columns[1] if len(df_prev.columns) > 1 else df_prev.columns[0], ""))),
-                "revenue": f"${float(r.get('revenue', 0.0)):,.2f}" if "revenue" in r else str(r.iloc[2] if len(r) > 2 else ""),
-                "order_date": str(r.get("order_date", r.iloc[3] if len(r) > 3 else "")),
-                "region": str(r.get("region", r.iloc[4] if len(r) > 4 else ""))
-            })
+            row_dict = {}
+            for col in preview_columns:
+                val = r[col]
+                if pd.isna(val) or str(val).strip() in ("NaT", "nan", "None", "<NA>"):
+                    row_dict[col] = "-"
+                elif isinstance(val, (float, np.floating)):
+                    row_dict[col] = f"{val:,.2f}"
+                else:
+                    row_dict[col] = str(val)
+            # Legacy fallback key for backwards-compatibility
+            row_dict["order_id"] = str(r.get("order_id", r.get(df_prev.columns[0], "")))
+            preview_rows.append(row_dict)
     except Exception as e:
+        preview_columns = ["order_id", "customer", "revenue", "order_date", "region"]
         preview_rows = [{"order_id": "ORD-001", "customer": "Global Corp", "revenue": "$1,250.00", "order_date": "2024-01-15", "region": "North America"}]
 
     # Format measures for response
@@ -210,6 +221,7 @@ async def run_pipeline(
             f"Modeler Agent synthesized {len(measures)} DAX measures tailored for Power BI Desktop",
             f"Compiled Power BI Fabric-ready project ({selected_format.upper()}) and forensic PDF audit report"
         ],
+        "preview_columns": preview_columns,
         "preview": preview_rows,
         "measures": measures
     }
