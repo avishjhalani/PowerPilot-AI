@@ -86,7 +86,9 @@ class CleanerAgent:
                 transforms.append(
                     f"pl.coalesce([\n"
                     f"        pl.col('{c_name}').cast(pl.String, strict=False).str.to_date('%Y-%m-%d', strict=False),\n"
+                    f"        pl.col('{c_name}').cast(pl.String, strict=False).str.to_date('%d-%m-%Y', strict=False),\n"
                     f"        pl.col('{c_name}').cast(pl.String, strict=False).str.to_date('%d/%m/%Y', strict=False),\n"
+                    f"        pl.col('{c_name}').cast(pl.String, strict=False).str.to_date('%m/%d/%Y', strict=False),\n"
                     f"        pl.col('{c_name}').cast(pl.String, strict=False).str.to_date('%m-%d-%Y', strict=False)\n"
                     f"    ]).alias('{c_name}')"
                 )
@@ -177,7 +179,7 @@ Return a JSON object with EXACTLY this structure:
     "Parsed order_date into ISO Date format with strict=False",
     "Deduplicated repeated record identifiers"
   ],
-  "code": "import polars as pl\\n\\nquery = (\\n    pl.scan_csv(r'{input_csv_str}', ignore_errors=True)\\n    .with_columns([\\n        pl.col('revenue').cast(pl.String, strict=False).str.replace_all(r'[\\\\$,]', '').str.strip_chars().cast(pl.Float64, strict=False),\\n        pl.col('quantity').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False),\\n        pl.col('customer_name').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.col('region').cast(pl.String, strict=False).str.strip_chars().str.to_uppercase(),\\n        pl.col('category').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.coalesce([\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%Y-%m-%d', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d/%m/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m-%d-%Y', strict=False)\\n        ]).alias('order_date')\\n    ])\\n    .unique(subset=['{id_col_example}'])\\n)\\nquery.sink_parquet(r'{output_parquet_str}')"
+  "code": "import polars as pl\\n\\nquery = (\\n    pl.scan_csv(r'{input_csv_str}', ignore_errors=True)\\n    .with_columns([\\n        pl.col('revenue').cast(pl.String, strict=False).str.replace_all(r'[\\\\$,]', '').str.strip_chars().cast(pl.Float64, strict=False),\\n        pl.col('quantity').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False),\\n        pl.col('customer_name').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.col('region').cast(pl.String, strict=False).str.strip_chars().str.to_uppercase(),\\n        pl.col('category').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.coalesce([\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%Y-%m-%d', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d-%m-%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d/%m/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m/%d/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m-%d-%Y', strict=False)\\n        ]).alias('order_date')\\n    ])\\n    .unique(subset=['{id_col_example}'])\\n)\\nquery.sink_parquet(r'{output_parquet_str}')"
 }}
 
 STRICT RULES:
@@ -195,11 +197,14 @@ STRICT RULES:
    - Multi-format dates:
      pl.coalesce([
          pl.col("col_name").cast(pl.String, strict=False).str.to_date("%Y-%m-%d", strict=False),
+         pl.col("col_name").cast(pl.String, strict=False).str.to_date("%d-%m-%Y", strict=False),
          pl.col("col_name").cast(pl.String, strict=False).str.to_date("%d/%m/%Y", strict=False),
+         pl.col("col_name").cast(pl.String, strict=False).str.to_date("%m/%d/%Y", strict=False),
          pl.col("col_name").cast(pl.String, strict=False).str.to_date("%m-%d-%Y", strict=False)
      ]).alias("col_name")
 6. Use the EXACT column names and casing from the provided metadata (e.g. '{id_col_example}').
 7. End with: `query.sink_parquet(r'{output_parquet_str}')`. NEVER call `.collect()`.
+8. NEVER USE `.cast(pl.Date)` on string date columns! In Polars, `.cast(pl.Date)` on non-ISO strings like '02-10-2024' silently nullifies them into null! ALWAYS use `pl.coalesce` with `str.to_date` patterns ('%d-%m-%Y', '%Y-%m-%d', etc.).
 """
 
         attempt = 0

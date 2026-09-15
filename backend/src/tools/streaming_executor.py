@@ -117,10 +117,9 @@ class StreamingExecutor:
             path_str = str(output_parquet_path).replace("\\", "/")
             con = duckdb.connect(database=":memory:")
             cleaned_count = con.execute(f"SELECT COUNT(*) FROM read_parquet('{path_str}')").fetchone()[0]
-            con.close()
-
             retention_pct = round((cleaned_count / raw_row_count) * 100, 2) if raw_row_count > 0 else 100.0
             if retention_pct < self.min_retention_pct:
+                con.close()
                 output_parquet_path.unlink(missing_ok=True)
                 return {
                     "success": False,
@@ -133,6 +132,29 @@ class StreamingExecutor:
                     "peak_memory_mb": round(peak_memory_mb, 2),
                     "output_file": None
                 }
+
+            # 4. Date Nullification Guardrail
+            cols_desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{path_str}')").fetchall()
+            for c_info in cols_desc:
+                c_name = c_info[0]
+                if "date" in c_name.lower() and cleaned_count > 0:
+                    null_cnt = con.execute(f"SELECT COUNT(*) FROM read_parquet('{path_str}') WHERE \"{c_name}\" IS NULL").fetchone()[0]
+                    if null_cnt == cleaned_count:
+                        con.close()
+                        output_parquet_path.unlink(missing_ok=True)
+                        return {
+                            "success": False,
+                            "error_message": (
+                                f"Data Integrity Failure: Date column '{c_name}' was 100% nullified ({null_cnt}/{cleaned_count} nulls)! "
+                                f"In Polars, NEVER call .cast(pl.Date) directly on string columns. "
+                                f"ALWAYS use pl.coalesce with str.to_date('%d-%m-%Y', strict=False), str.to_date('%Y-%m-%d', strict=False), str.to_date('%d/%m/%Y', strict=False), etc."
+                            ),
+                            "execution_time_seconds": duration,
+                            "peak_memory_mb": round(peak_memory_mb, 2),
+                            "output_file": None
+                        }
+
+            con.close()
 
             file_size_mb = round(output_parquet_path.stat().st_size / (1024 * 1024), 2)
             return {

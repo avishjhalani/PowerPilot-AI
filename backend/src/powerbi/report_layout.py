@@ -1,5 +1,6 @@
 import json
 import uuid
+import re
 from typing import Dict, Any, List, Optional
 
 
@@ -178,6 +179,7 @@ class ReportLayoutBuilder:
     ) -> Dict[str, Any]:
         chart_type_raw = str(chart.get("type") or "").lower()
         title_text = str(chart.get("title") or "Analysis")
+        title_text = re.sub(r"\s+by\s+(\b\w+\b)(?:\s+by\s+\1)+", r" by \1", title_text, flags=re.IGNORECASE).strip()
 
         raw_dimension = chart.get("dimension") or "Category"
         dimension = self._resolve_dimension(raw_dimension, available_columns)
