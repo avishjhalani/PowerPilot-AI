@@ -72,7 +72,7 @@ class CleanerAgent:
                 return chunk, n
         return json.dumps(sample_records[:min_rows], indent=1, default=str), min_rows
 
-    def _build_heuristic_recipe(self, profile: Dict[str, Any], input_csv_str: str, output_parquet_str: str) -> tuple[str, List[str]]:
+    def _build_heuristic_recipe(self, profile: Dict[str, Any], input_csv_str: str, output_parquet_str: str, user_intent: str = None) -> tuple[str, List[str]]:
         """Constructs a deterministic, high-speed Polars 1.0+ streaming pipeline."""
         transforms = []
         changelog = []
@@ -100,9 +100,9 @@ class CleanerAgent:
                 changelog.append(f"Stripped currency symbols and cast '{c_name}' to Float64")
             elif c_name.lower() in ["qty", "quantity"] or c_name.lower().endswith("_qty") or c_name.lower().endswith("count") or c_type in ["BIGINT", "INTEGER"]:
                 transforms.append(
-                    f"pl.col('{c_name}').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False)"
+                    f"pl.col('{c_name}').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False).abs()"
                 )
-                changelog.append(f"Cast '{c_name}' to Int64 with strict=False")
+                changelog.append(f"Sanitized negative values and cast '{c_name}' to positive Int64")
             elif c_type == "VARCHAR":
                 if "name" in c_name.lower() or "category" in c_name.lower():
                     transforms.append(f"pl.col('{c_name}').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase()")
@@ -119,6 +119,20 @@ class CleanerAgent:
         if dedup:
             changelog.append(f"Deduplicated repeated record identifiers on '{id_cols[0]}'")
 
+        # Filter out obvious rogue anomalies (e.g. dates outside Q4 for Q4 datasets or flagged data issues)
+        filters = []
+        issue_cols = [c["name"] for c in profile["columns"] if c["name"].lower() in ["data issue", "data_issue", "issue", "data_error"]]
+        if issue_cols:
+            filters.append(f"pl.col('{issue_cols[0]}').cast(pl.String, strict=False).str.to_lowercase().str.contains('outside q4|date outside|corrupt').not_()")
+            changelog.append(f"Filtered out rogue records flagged in '{issue_cols[0]}'")
+
+        date_cols = [c["name"] for c in profile["columns"] if "date" in c["name"].lower()]
+        if ("q4" in input_csv_str.lower() or (user_intent and "q4" in user_intent.lower())) and date_cols:
+            filters.append(f"((pl.col('{date_cols[0]}').dt.month() >= 10) & (pl.col('{date_cols[0]}').dt.month() <= 12))")
+            changelog.append(f"Filtered '{date_cols[0]}' strictly to Quarter 4 (Oct-Dec) removing outlier dates")
+
+        filter_lines = ("\n" + "\n".join(f"query = query.filter({flt})" for flt in filters)) if filters else ""
+
         code = f"""import polars as pl
 
 query = (
@@ -127,12 +141,12 @@ query = (
         {col_exprs}
     ])
 )
-{dedup}
+{dedup}{filter_lines}
 query.sink_parquet(r'{output_parquet_str}')
 """
         return code, changelog
 
-    def clean_dataset(self, profile: Dict[str, Any], output_name: str = "cleaned_data.parquet") -> Dict[str, Any]:
+    def clean_dataset(self, profile: Dict[str, Any], output_name: str = "cleaned_data.parquet", user_intent: str = None) -> Dict[str, Any]:
         input_csv = profile["file_path"]
         raw_rows = profile["total_rows"]
         output_parquet = CLEANED_DATA_DIR / output_name
@@ -161,6 +175,8 @@ query.sink_parquet(r'{output_parquet_str}')
         id_cols = [c["name"] for c in profile.get("columns", []) if "id" in c["name"].lower()]
         id_col_example = id_cols[0] if id_cols else "order_id"
 
+        user_scope_text = f"\nUSER CLEANING REQUIREMENTS & DOMAIN SCOPE:\n\"{user_intent}\"\n" if user_intent and user_intent.strip() else ""
+
         initial_prompt = f"""
 Given a dirty dataset of {raw_rows:,} rows at: "{input_csv_str}"
 
@@ -169,7 +185,7 @@ Columns & Profiling Metadata:
 
 Sample records (sample rows):
 {sample_records_json}
-
+{user_scope_text}
 Write an out-of-core streaming Polars 1.0+ cleaning pipeline.
 Return a JSON object with EXACTLY this structure:
 {{
@@ -179,7 +195,7 @@ Return a JSON object with EXACTLY this structure:
     "Parsed order_date into ISO Date format with strict=False",
     "Deduplicated repeated record identifiers"
   ],
-  "code": "import polars as pl\\n\\nquery = (\\n    pl.scan_csv(r'{input_csv_str}', ignore_errors=True)\\n    .with_columns([\\n        pl.col('revenue').cast(pl.String, strict=False).str.replace_all(r'[\\\\$,]', '').str.strip_chars().cast(pl.Float64, strict=False),\\n        pl.col('quantity').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False),\\n        pl.col('customer_name').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.col('region').cast(pl.String, strict=False).str.strip_chars().str.to_uppercase(),\\n        pl.col('category').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.coalesce([\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%Y-%m-%d', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d-%m-%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d/%m/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m/%d/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m-%d-%Y', strict=False)\\n        ]).alias('order_date')\\n    ])\\n    .unique(subset=['{id_col_example}'])\\n)\\nquery.sink_parquet(r'{output_parquet_str}')"
+  "code": "import polars as pl\\n\\nquery = (\\n    pl.scan_csv(r'{input_csv_str}', ignore_errors=True)\\n    .with_columns([\\n        pl.col('revenue').cast(pl.String, strict=False).str.replace_all(r'[\\\\$,]', '').str.strip_chars().cast(pl.Float64, strict=False),\\n        pl.col('quantity').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False).abs(),\\n        pl.col('customer_name').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.col('region').cast(pl.String, strict=False).str.strip_chars().str.to_uppercase(),\\n        pl.col('category').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase(),\\n        pl.coalesce([\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%Y-%m-%d', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d-%m-%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%d/%m/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m/%d/%Y', strict=False),\\n            pl.col('order_date').cast(pl.String, strict=False).str.to_date('%m-%d-%Y', strict=False)\\n        ]).alias('order_date')\\n    ])\\n    .unique(subset=['{id_col_example}'])\\n)\\nquery.sink_parquet(r'{output_parquet_str}')"
 }}
 
 STRICT RULES:
@@ -191,7 +207,7 @@ STRICT RULES:
    - Numbers with currency ($), commas, or dirty text:
      pl.col('col_name').cast(pl.String, strict=False).str.replace_all(r'[\\$,]', '').str.strip_chars().cast(pl.Float64, strict=False)
    - Integer / count columns:
-     pl.col('col_name').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False)
+     pl.col('col_name').cast(pl.String, strict=False).str.strip_chars().cast(pl.Int64, strict=False).abs()
    - String whitespace / casing:
      pl.col('col_name').cast(pl.String, strict=False).str.strip_chars().str.to_titlecase()
    - Multi-format dates:
@@ -205,6 +221,10 @@ STRICT RULES:
 6. Use the EXACT column names and casing from the provided metadata (e.g. '{id_col_example}').
 7. End with: `query.sink_parquet(r'{output_parquet_str}')`. NEVER call `.collect()`.
 8. NEVER USE `.cast(pl.Date)` on string date columns! In Polars, `.cast(pl.Date)` on non-ISO strings like '02-10-2024' silently nullifies them into null! ALWAYS use `pl.coalesce` with `str.to_date` patterns ('%d-%m-%Y', '%Y-%m-%d', etc.).
+9. DOMAIN & TEMPORAL INTEGRITY:
+   - If the dataset or user intent refers to Q4 (Quarter 4), filter dates strictly to Oct 1 - Dec 31 (months 10 to 12) or drop records flagged with 'Date Outside Q4'.
+   - Always sanitize negative quantities: use `.abs()` on quantity columns.
+   - If an issue/audit column exists (e.g. 'Data Issue'), filter out corrupt or out-of-scope rows.
 """
 
         attempt = 0
@@ -272,7 +292,7 @@ STRICT RULES:
 
         # Deterministic Fallback Engine
         print("⚠️ LLM retries exhausted. Activating high-speed deterministic Polars fallback engine...")
-        fallback_code, fallback_changelog = self._build_heuristic_recipe(profile, input_csv_str, output_parquet_str)
+        fallback_code, fallback_changelog = self._build_heuristic_recipe(profile, input_csv_str, output_parquet_str, user_intent=user_intent)
         fallback_exec = self.executor.execute_script(fallback_code, temp_script_path, output_parquet, raw_row_count=raw_rows)
 
         if temp_script_path.exists():

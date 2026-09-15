@@ -105,7 +105,7 @@ async def run_pipeline(
 
     # Step 2: Cleaner
     cleaner = CleanerAgent()
-    clean_res = cleaner.clean_dataset(profile, output_name=f"{proj_name.lower()}_clean.parquet")
+    clean_res = cleaner.clean_dataset(profile, output_name=f"{proj_name.lower()}_clean.parquet", user_intent=user_intent)
     if not clean_res.get("success"):
         raise HTTPException(status_code=500, detail=clean_res.get("error_message", "Cleaning failed"))
 
