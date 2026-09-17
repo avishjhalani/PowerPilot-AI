@@ -1,0 +1,22 @@
+name: Keep Render Server Alive
+
+on:
+  schedule:
+    # Runs every 10 minutes
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger anytime from GitHub Actions tab
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend
+        run: |
+          echo "Pinging PowerPilot AI on Render..."
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://powerpilot-ai-y758.onrender.com/api/health)
+          echo "Response code: $STATUS"
+          if [ "$STATUS" -eq 200 ]; then
+            echo "✅ Server is online and active."
+          else
+            echo "⚠️ Server returned non-200 status: $STATUS"
+          fi
