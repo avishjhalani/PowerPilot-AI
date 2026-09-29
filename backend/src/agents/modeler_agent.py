@@ -140,10 +140,42 @@ Instead, use standard duplicate-safe DAX:
             cat_cols = [c["column"] for c in schema_summary if any(t in c["data_type"].upper() for t in ["VARCHAR", "TEXT", "STRING"])]
 
             val_col = "revenue" if any(c["column"] == "revenue" for c in schema_summary) else (num_cols[0] if num_cols else "value")
-            qty_col = "quantity" if any(c["column"] == "quantity" for c in schema_summary) else (num_cols[1] if len(num_cols) > 1 else val_col)
+            qty_col = "quantity" if any(c["column"] == "quantity" for c in schema_summary) else (num_cols[1] if len(num_cols) > 1 else None)
             reg_col = "region" if any(c["column"] == "region" for c in schema_summary) else (cat_cols[0] if cat_cols else "dimension")
             cat_col = "category" if any(c["column"] == "category" for c in schema_summary) else (cat_cols[1] if len(cat_cols) > 1 else reg_col)
 
+            # Ensure distinct names even if only 1 numeric column exists
+            fallback_measures = [
+                {
+                    "name": f"Total {val_col.title()}",
+                    "dax": f"SUM('{table_name}'[{val_col}])",
+                    "format": "$#,##0.00",
+                    "description": f"Total aggregate of {val_col}."
+                }
+            ]
+            if qty_col:
+                fallback_measures.append({
+                    "name": f"Total {qty_col.title()}",
+                    "dax": f"SUM('{table_name}'[{qty_col}])",
+                    "format": "#,##0",
+                    "description": f"Total aggregate of {qty_col}."
+                })
+            else:
+                fallback_measures.append({
+                    "name": "Total Records",
+                    "dax": f"COUNTROWS('{table_name}')",
+                    "format": "#,##0",
+                    "description": "Total record count."
+                })
+
+            fallback_measures.append({
+                "name": f"Average {val_col.title()}",
+                "dax": f"AVERAGE('{table_name}'[{val_col}])",
+                "format": "$#,##0.00",
+                "description": f"Average per transaction."
+            })
+
+            sec_kpi = f"Total {qty_col.title()}" if qty_col else "Total Records"
             blueprint = {
                 "business_domain": "Executive Performance Dashboard",
                 "table_name": table_name,
@@ -152,41 +184,34 @@ Instead, use standard duplicate-safe DAX:
                     {"column": reg_col, "description": "Primary breakdown dimension"},
                     {"column": cat_col, "description": "Secondary category dimension"}
                 ],
-                "dax_measures": [
-                    {
-                        "name": f"Total {val_col.title()}",
-                        "dax": f"SUM('{table_name}'[{val_col}])",
-                        "format": "$#,##0.00",
-                        "description": f"Total aggregate of {val_col}."
-                    },
-                    {
-                        "name": f"Total {qty_col.title()}",
-                        "dax": f"SUM('{table_name}'[{qty_col}])",
-                        "format": "#,##0",
-                        "description": f"Total aggregate of {qty_col}."
-                    },
-                    {
-                        "name": "Average Order Value",
-                        "dax": f"AVERAGE('{table_name}'[{val_col}])",
-                        "format": "$#,##0.00",
-                        "description": f"Average per transaction."
-                    }
-                ],
+                "dax_measures": fallback_measures,
                 "visual_blueprints": [
                     {"type": "card", "title": f"Total {val_col.title()}", "measure": f"Total {val_col.title()}"},
-                    {"type": "card", "title": f"Total {qty_col.title()}", "measure": f"Total {qty_col.title()}"},
-                    {"type": "card", "title": "Average Order Value", "measure": "Average Order Value"},
+                    {"type": "card", "title": sec_kpi, "measure": sec_kpi},
+                    {"type": "card", "title": f"Average {val_col.title()}", "measure": f"Average {val_col.title()}"},
                     {"type": "bar_chart", "title": f"{val_col.title()} by {reg_col.title()}", "dimension": reg_col, "measure": f"Total {val_col.title()}"},
                     {"type": "donut_chart", "title": f"{val_col.title()} by {cat_col.title()}", "dimension": cat_col, "measure": f"Total {val_col.title()}"}
                 ]
             }
 
-        # Sanitize all dax measures so no measure name prefix leaks through and unsafe time intelligence is rewritten
+        # Deduplicate measure names (case-insensitive) so TMDL never encounters duplicate measure definitions
         from backend.src.powerbi.tmdl_builder import TMDLBuilder
         tmdl_builder = TMDLBuilder()
+        seen_names = set()
+        col_names = {c["column"].lower() for c in schema_summary}
+
         for m in blueprint.get("dax_measures", []):
+            orig_name = (m.get("name") or "Metric").strip()
+            unique_name = orig_name
+            counter = 2
+            while unique_name.lower() in seen_names or unique_name.lower() in col_names:
+                unique_name = f"{orig_name} ({counter})"
+                counter += 1
+            seen_names.add(unique_name.lower())
+            m["name"] = unique_name
+
             dax = (m.get("dax") or "").strip()
-            clean_dax = tmdl_builder._clean_and_format_dax(dax, m.get("name"))
+            clean_dax = tmdl_builder._clean_and_format_dax(dax, unique_name)
             m["dax"] = clean_dax
 
         return blueprint

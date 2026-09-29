@@ -258,6 +258,24 @@ in
         cols_info = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{parquet_str}')").fetchall()
         con.close()
         available_cols = [c[0] for c in cols_info]
+        col_names_lower = {c[0].lower() for c in cols_info}
+
+        # Strictly enforce unique measure names (case-insensitive) to prevent TMDL object merge conflicts
+        seen_msr = set()
+        unique_dax_measures = []
+        for m in dax_measures:
+            m_copy = dict(m)
+            m_name = (m_copy.get("name") or "Metric").strip()
+            base_name = m_name
+            counter = 2
+            while m_name.lower() in seen_msr or m_name.lower() in col_names_lower:
+                m_name = f"{base_name} ({counter})"
+                counter += 1
+            seen_msr.add(m_name.lower())
+            m_copy["name"] = m_name
+            unique_dax_measures.append(m_copy)
+        dax_measures = unique_dax_measures
+
         available_measures = [m.get("name") for m in dax_measures]
 
         report_json = self.layout_builder.generate_layout(

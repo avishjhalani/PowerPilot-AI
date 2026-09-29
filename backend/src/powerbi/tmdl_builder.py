@@ -229,8 +229,18 @@ class TMDLBuilder:
         # 4. Write definition/tables/<table_name>.tmdl
         table_lines = [f"table '{escaped_table_name}'\n"]
 
+        # Deduplicate columns (case-insensitive)
+        seen_cols = set()
+        unique_cols_info = []
+        for col_info in cols_info:
+            c_name = col_info[0]
+            if c_name.lower() in seen_cols:
+                continue
+            seen_cols.add(c_name.lower())
+            unique_cols_info.append(col_info)
+
         # Columns
-        for col_name, col_type, *_ in cols_info:
+        for col_name, col_type, *_ in unique_cols_info:
             tmdl_type = self._map_duckdb_to_tmdl_type(col_type)
             summarize = "none" if "ID" in col_name.upper() else "default"
             escaped_col_name = col_name.replace("'", "''")
@@ -240,9 +250,18 @@ class TMDLBuilder:
             table_lines.append(f'\t\tsourceColumn: "{escaped_source_col}"')
             table_lines.append(f"\t\tsummarizeBy: {summarize}\n")
 
-        # Measures
+        # Deduplicate measures (case-insensitive) to prevent:
+        # "TMDL objects cannot be merged because both declare the same property: expression"
+        seen_measures = set()
         for m in dax_measures:
-            m_name = m.get("name", "Metric")
+            m_name = (m.get("name") or "Metric").strip()
+            base_name = m_name
+            counter = 2
+            while m_name.lower() in seen_measures or m_name.lower() in seen_cols:
+                m_name = f"{base_name} ({counter})"
+                counter += 1
+            seen_measures.add(m_name.lower())
+
             clean_dax = self._clean_and_format_dax(m.get("dax", ""), m_name=m_name)
             fmt = m.get("format", "$#,##0.00")
             escaped_m_name = m_name.replace("'", "''")
