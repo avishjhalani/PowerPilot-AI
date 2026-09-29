@@ -48,7 +48,8 @@ export const apiPatch = <T>(path: string, body?: RequestBody) =>
 export const apiDelete = <T>(path: string) => request<T>("DELETE", path);
 
 export async function apiDownload(path: string, filename: string): Promise<void> {
-  const res = await fetch(`${BASE}${path}`);
+  const downloadUrl = `${BASE}${path}`;
+  const res = await fetch(downloadUrl);
   if (!res.ok) {
     const errBody = await res.json().catch(() => null);
     throw new ApiError(res.status, errBody);
@@ -60,6 +61,11 @@ export async function apiDownload(path: string, filename: string): Promise<void>
   anchor.download = filename;
   document.body.appendChild(anchor);
   anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+
+  // Crucial: Keep Blob URL alive for 15 seconds so browser download manager finishes saving to disk
+  setTimeout(() => {
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }, 15000);
 }
+

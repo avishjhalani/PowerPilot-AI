@@ -34,6 +34,9 @@ PBIPBuilder = pbip_mod.PBIPBuilder
 
 RAW_DATA_DIR = config_mod.RAW_DATA_DIR
 PBIP_OUTPUT_DIR = config_mod.PBIP_OUTPUT_DIR
+CLEANED_DATA_DIR = config_mod.CLEANED_DATA_DIR
+REPORTS_OUTPUT_DIR = config_mod.REPORTS_OUTPUT_DIR
+OUTPUT_DIR = config_mod.OUTPUT_DIR
 
 app = FastAPI(title="PowerPilot AI Backend")
 
@@ -43,9 +46,28 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
-RUNS_STORE: Dict[str, Dict[str, Any]] = {}
+RUNS_STORE_FILE = OUTPUT_DIR / "runs_store.json"
+
+def load_runs_store() -> Dict[str, Dict[str, Any]]:
+    if RUNS_STORE_FILE.exists():
+        try:
+            import json
+            return json.loads(RUNS_STORE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+def save_runs_store(store: Dict[str, Dict[str, Any]]):
+    try:
+        import json
+        RUNS_STORE_FILE.write_text(json.dumps(store, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+RUNS_STORE: Dict[str, Dict[str, Any]] = load_runs_store()
 
 @app.get("/api/health")
 def health():
@@ -145,6 +167,7 @@ async def run_pipeline(
         "pbip": str(zip_path),
         "zip": str(zip_path)
     }
+    save_runs_store(RUNS_STORE)
 
     # Query 5 preview rows from DuckDB with dynamic schema
     preview_rows = []
@@ -228,10 +251,10 @@ async def run_pipeline(
 
 @app.get("/api/pipeline/artifacts/{run_id}/{artifact_type}")
 async def download_artifact(run_id: str, artifact_type: str):
+    global RUNS_STORE
     if run_id not in RUNS_STORE:
-        raise HTTPException(status_code=404, detail="Run not found or expired")
+        RUNS_STORE.update(load_runs_store())
     
-    run_files = RUNS_STORE[run_id]
     alias_map = {
         "project": "project",
         "zip": "project",
@@ -241,12 +264,30 @@ async def download_artifact(run_id: str, artifact_type: str):
         "parquet": "parquet"
     }
     resolved_key = alias_map.get(artifact_type.lower(), artifact_type.lower())
-    if resolved_key not in run_files:
-        raise HTTPException(status_code=404, detail=f"Artifact {artifact_type} not found")
     
-    fpath = Path(run_files[resolved_key])
-    if not fpath.exists():
-        raise HTTPException(status_code=404, detail=f"File missing on disk: {fpath}")
+    fpath = None
+    if run_id in RUNS_STORE and resolved_key in RUNS_STORE[run_id]:
+        candidate = Path(RUNS_STORE[run_id][resolved_key])
+        if candidate.exists():
+            fpath = candidate
+
+    # Fallback: recover by artifact type from output directories if run_id expired/restarted
+    if fpath is None:
+        if resolved_key == "project":
+            matches = sorted(PBIP_OUTPUT_DIR.glob("*.zip"), key=os.path.getmtime)
+            if matches:
+                fpath = matches[-1]
+        elif resolved_key == "audit":
+            matches = sorted(REPORTS_OUTPUT_DIR.glob("*.pdf"), key=os.path.getmtime)
+            if matches:
+                fpath = matches[-1]
+        elif resolved_key == "parquet":
+            matches = sorted(CLEANED_DATA_DIR.glob("*.parquet"), key=os.path.getmtime)
+            if matches:
+                fpath = matches[-1]
+
+    if not fpath or not fpath.exists():
+        raise HTTPException(status_code=404, detail=f"Artifact {artifact_type} not found or expired on server")
     
     media_types = {
         ".pdf": "application/pdf",
@@ -254,7 +295,11 @@ async def download_artifact(run_id: str, artifact_type: str):
         ".parquet": "application/octet-stream"
     }
     media_type = media_types.get(fpath.suffix.lower(), "application/octet-stream")
-    return FileResponse(path=fpath, filename=fpath.name, media_type=media_type)
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fpath.name}"',
+        "Access-Control-Expose-Headers": "Content-Disposition"
+    }
+    return FileResponse(path=fpath, filename=fpath.name, media_type=media_type, headers=headers)
 
 # Serve built frontend in production if dist/ exists
 from fastapi.staticfiles import StaticFiles

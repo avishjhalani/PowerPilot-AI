@@ -144,7 +144,20 @@ export default function Home() {
       await apiDownload(`/pipeline/artifacts/${result.run_id}/${artifactType}`, filename);
       toast.success(`${label} downloaded`);
     } catch {
-      toast.error("Download failed", { description: "The generated artifact is no longer available." });
+      // Fallback: Direct native browser download stream
+      try {
+        const directUrl = `/api/pipeline/artifacts/${result.run_id}/${artifactType}`;
+        const link = document.createElement("a");
+        link.href = directUrl;
+        link.setAttribute("download", filename);
+        link.target = "_blank";
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => link.remove(), 1000);
+        toast.info(`Initiated direct download for ${label}`);
+      } catch {
+        toast.error("Download failed", { description: "The generated artifact is no longer available." });
+      }
     }
   };
 
