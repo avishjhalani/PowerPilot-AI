@@ -43,7 +43,7 @@ class ReportLayoutBuilder:
             return str(requested_dim) if requested_dim else "Category"
 
         if not requested_dim or not isinstance(requested_dim, str) or not requested_dim.strip():
-            preferred = ["category", "type", "region", "sku", "product", "customer", "segment", "status", "channel"]
+            preferred = ["category", "type", "region", "state", "sku", "product", "customer", "segment", "status", "channel"]
             for p in preferred:
                 for col in available_columns:
                     if p in col.lower():
@@ -69,7 +69,40 @@ class ReportLayoutBuilder:
             if req_clean in col.lower() or col.lower() in req_clean:
                 return col
 
-        preferred = ["category", "type", "region", "sku", "product", "customer", "segment", "status", "channel"]
+        # Semantic Synonyms Resolution:
+        # 1. Temporal / Date (e.g. order_month, period, trend -> order_date, del_date)
+        temporal_keywords = ["month", "date", "year", "day", "time", "trend", "period", "quarter", "timeline", "timestamp"]
+        if any(w in req_clean for w in temporal_keywords):
+            for t_kw in ["date", "time", "timestamp", "month", "year", "day"]:
+                for col in available_columns:
+                    if t_kw in col.lower():
+                        return col
+
+        # 2. Geographic / Territory (e.g. region -> state, city, warehouse)
+        geo_keywords = ["region", "state", "city", "country", "territory", "location", "geo", "zone", "area", "market"]
+        if any(w in req_clean for w in geo_keywords):
+            for g_kw in ["state", "city", "region", "country", "territory", "location", "zone", "area", "warehouse"]:
+                for col in available_columns:
+                    if g_kw in col.lower():
+                        return col
+
+        # 3. Taxonomy / Product (e.g. category, sku, product)
+        product_keywords = ["category", "product", "sku", "item", "type", "segment", "class", "dept"]
+        if any(w in req_clean for w in product_keywords):
+            for p_kw in ["category", "product", "sku", "type", "segment", "item"]:
+                for col in available_columns:
+                    if p_kw in col.lower():
+                        return col
+
+        # 4. Status / Channel / Customer / Payment
+        other_keywords = ["status", "channel", "source", "payment", "customer", "vendor"]
+        if any(w in req_clean for w in other_keywords):
+            for o_kw in ["status", "channel", "source", "payment", "customer"]:
+                for col in available_columns:
+                    if o_kw in col.lower():
+                        return col
+
+        preferred = ["category", "type", "region", "state", "city", "sku", "product", "customer", "segment", "status", "channel"]
         for p in preferred:
             for col in available_columns:
                 if p in col.lower():
@@ -84,6 +117,14 @@ class ReportLayoutBuilder:
 
         if not requested_measure or not isinstance(requested_measure, str) or not requested_measure.strip():
             return available_measures[0]
+
+        # Handle multiple comma-separated measures (e.g. "Measure A, Measure B")
+        if "," in requested_measure:
+            parts = [p.strip() for p in requested_measure.split(",") if p.strip()]
+            for p in parts:
+                resolved = self._resolve_measure(p, available_measures)
+                if resolved in available_measures:
+                    return resolved
 
         if requested_measure in available_measures:
             return requested_measure

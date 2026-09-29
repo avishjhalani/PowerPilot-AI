@@ -106,8 +106,25 @@ Return a raw JSON object with EXACTLY this structure:
 RULES:
 1. Provide 4-8 DAX measures matching the user's intent.
 2. Design up to 9 visuals (up to 4 KPI Cards for Tier 1, plus 5 Charts like Bar Chart, Donut Chart, Line Chart for Tiers 2 & 3). If the user requests 9 visuals or specific metrics/charts, provide all 9!
-3. Ensure DAX formulas reference '{table_name}'[column_name] accurately.
+3. Ensure DAX formulas reference '{table_name}'[column_name] accurately using columns that EXIST in the Schema.
 4. CRITICAL: The 'dax' field must contain ONLY the DAX formula expression (e.g. "SUM('{table_name}'[revenue])" or "DIVIDE([Total Profit], [Total Revenue], 0)"). NEVER include the measure name or '=' in the 'dax' string.
+5. CRITICAL - TIME INTELLIGENCE ON TRANSACTION TABLES:
+The dataset is a transaction table ('{table_name}') where date columns contain DUPLICATE timestamps/dates.
+Power BI Desktop STRICTLY FORBIDS built-in time-intelligence functions (like DATEADD, TOTALYTD, DATESYTD, SAMEPERIODLASTYEAR, PARALLELPERIOD, PREVIOUSMONTH) on columns with duplicate dates and will CRASH with:
+"A date column containing duplicate values was specified in the call to function 'DATEADD'."
+Instead, use standard duplicate-safe DAX:
+- For Month-over-Month (MoM):
+  VAR Current = [Total Revenue]
+  VAR MaxDate = MAX('{table_name}'[date_col])
+  VAR PriorMonth = IF(MONTH(MaxDate) = 1, 12, MONTH(MaxDate) - 1)
+  VAR PriorYear = IF(MONTH(MaxDate) = 1, YEAR(MaxDate) - 1, YEAR(MaxDate))
+  VAR Prior = CALCULATE([Total Revenue], FILTER(ALL('{table_name}'), MONTH('{table_name}'[date_col]) = PriorMonth && YEAR('{table_name}'[date_col]) = PriorYear))
+  RETURN DIVIDE(Current - Prior, Prior, 0)
+- For Cumulative / YTD:
+  CALCULATE([Total Revenue], FILTER(ALLSELECTED('{table_name}'[date_col]), '{table_name}'[date_col] <= MAX('{table_name}'[date_col])))
+6. VISUAL BLUEPRINTS:
+- 'dimension' MUST be an exact column name that actually exists in the Schema above (e.g. use "order_date" or "category", NOT invented names like "order_month" or "region" if not present in Schema). Never leave empty for charts.
+- 'measure' MUST be a SINGLE measure name from your dax_measures list (e.g. "Total Revenue"). NEVER list multiple measures separated by commas.
 """
 
         print(f"📊 Modeler Agent designing dashboard...")
@@ -164,16 +181,13 @@ RULES:
                 ]
             }
 
-        # Sanitize all dax measures so no measure name prefix leaks through
+        # Sanitize all dax measures so no measure name prefix leaks through and unsafe time intelligence is rewritten
+        from backend.src.powerbi.tmdl_builder import TMDLBuilder
+        tmdl_builder = TMDLBuilder()
         for m in blueprint.get("dax_measures", []):
             dax = (m.get("dax") or "").strip()
-            while "=" in dax:
-                prefix, rest = dax.split("=", 1)
-                p_clean = prefix.strip().upper()
-                if p_clean.startswith("VAR ") or p_clean.startswith("VAR\t") or p_clean.startswith("RETURN ") or "(" in prefix:
-                    break
-                dax = rest.strip()
-            m["dax"] = dax
+            clean_dax = tmdl_builder._clean_and_format_dax(dax, m.get("name"))
+            m["dax"] = clean_dax
 
         return blueprint
 

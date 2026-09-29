@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, Any, List
+import re
 import base64
 import tempfile
 import duckdb
@@ -29,11 +30,89 @@ class TMDLBuilder:
             return "boolean"
         return "string"
 
+    def _sanitize_time_intelligence(self, dax: str) -> str:
+        """
+        Replaces DATEADD, TOTALYTD, DATESYTD, and other time intelligence functions
+        that require unique contiguous date tables with duplicate-safe DAX filter patterns.
+        """
+        # TOTALYTD(expr, date_col [, filter])
+        def repl_totalytd(m):
+            expr = m.group("expr").strip()
+            date_col = m.group("date").strip()
+            flt = m.group("filter")
+            if flt:
+                return f"CALCULATE({expr}, FILTER(ALLSELECTED({date_col}), {date_col} <= MAX({date_col})), {flt.strip()})"
+            return f"CALCULATE({expr}, FILTER(ALLSELECTED({date_col}), {date_col} <= MAX({date_col})))"
+
+        dax = re.sub(
+            r"TOTALYTD\s*\(\s*(?P<expr>[^,]+)\s*,\s*(?P<date>[^,\)]+)(?:\s*,\s*(?P<filter>[^\)]+))?\s*\)",
+            repl_totalytd,
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # DATESYTD(date_col)
+        dax = re.sub(
+            r"DATESYTD\s*\(\s*(?P<date>[^\)]+)\s*\)",
+            r"FILTER(ALLSELECTED(\g<date>), \g<date> <= MAX(\g<date>))",
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # DATEADD(date_col, -1, MONTH) or PARALLELPERIOD / PREVIOUSMONTH
+        def repl_dateadd_month(m):
+            date_col = m.group("date").strip()
+            return (
+                f"FILTER(ALL({date_col}), "
+                f"MONTH({date_col}) = IF(MONTH(MAX({date_col})) = 1, 12, MONTH(MAX({date_col})) - 1) && "
+                f"YEAR({date_col}) = IF(MONTH(MAX({date_col})) = 1, YEAR(MAX({date_col})) - 1, YEAR(MAX({date_col}))))"
+            )
+
+        dax = re.sub(
+            r"DATEADD\s*\(\s*(?P<date>[^,]+)\s*,\s*-[0-9]+\s*,\s*MONTH\s*\)",
+            repl_dateadd_month,
+            dax,
+            flags=re.IGNORECASE
+        )
+        dax = re.sub(
+            r"PREVIOUSMONTH\s*\(\s*(?P<date>[^\)]+)\s*\)",
+            repl_dateadd_month,
+            dax,
+            flags=re.IGNORECASE
+        )
+        dax = re.sub(
+            r"PARALLELPERIOD\s*\(\s*(?P<date>[^,]+)\s*,\s*-[0-9]+\s*,\s*MONTH\s*\)",
+            repl_dateadd_month,
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # DATEADD(date_col, -1, YEAR) or SAMEPERIODLASTYEAR
+        def repl_dateadd_year(m):
+            date_col = m.group("date").strip()
+            return f"FILTER(ALL({date_col}), YEAR({date_col}) = YEAR(MAX({date_col})) - 1)"
+
+        dax = re.sub(
+            r"DATEADD\s*\(\s*(?P<date>[^,]+)\s*,\s*-[0-9]+\s*,\s*YEAR\s*\)",
+            repl_dateadd_year,
+            dax,
+            flags=re.IGNORECASE
+        )
+        dax = re.sub(
+            r"SAMEPERIODLASTYEAR\s*\(\s*(?P<date>[^\)]+)\s*\)",
+            repl_dateadd_year,
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        return dax
+
     def _clean_and_format_dax(self, raw_dax: str, m_name: str = None) -> str:
         """
         Cleans DAX expressions:
         - Strips accidental 'MeasureName =' or '[MeasureName] =' prefixes
         - Safely preserves 'VAR ...' expressions without stripping
+        - Replaces unsafe time intelligence on duplicate date transaction tables
         - Expands single-line VAR/RETURN into multiline
         """
         clean_dax = (raw_dax or "").strip()
@@ -64,6 +143,9 @@ class TMDLBuilder:
             else:
                 break
 
+        # Sanitize time intelligence that breaks on transaction tables with duplicate dates
+        clean_dax = self._sanitize_time_intelligence(clean_dax)
+
         # If DAX has inline VAR / RETURN statements on a single line, split them
         if "VAR " in clean_dax and "\n" not in clean_dax:
             clean_dax = clean_dax.replace(" VAR ", "\nVAR ").replace(" RETURN ", "\nRETURN ")
@@ -88,6 +170,8 @@ class TMDLBuilder:
         cols_info = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{parquet_str}')").fetchall()
         con.close()
 
+        escaped_table_name = table_name.replace("'", "''")
+
         # 2. Write definition/database.tmdl
         db_content = (
             "database SemanticModel\n"
@@ -100,20 +184,22 @@ class TMDLBuilder:
             "model Model\n"
             "\tculture: en-US\n"
             "\tdefaultPowerBIDataSourceVersion: powerBI_V3\n\n"
-            f"ref table '{table_name}'\n"
+            f"ref table '{escaped_table_name}'\n"
         )
         (definition_dir / "model.tmdl").write_text(model_content, encoding="utf-8")
 
         # 4. Write definition/tables/<table_name>.tmdl
-        table_lines = [f"table '{table_name}'\n"]
+        table_lines = [f"table '{escaped_table_name}'\n"]
 
         # Columns
         for col_name, col_type, *_ in cols_info:
             tmdl_type = self._map_duckdb_to_tmdl_type(col_type)
             summarize = "none" if "ID" in col_name.upper() else "default"
-            table_lines.append(f"\tcolumn '{col_name}'")
+            escaped_col_name = col_name.replace("'", "''")
+            escaped_source_col = col_name.replace('"', '""')
+            table_lines.append(f"\tcolumn '{escaped_col_name}'")
             table_lines.append(f"\t\tdataType: {tmdl_type}")
-            table_lines.append(f"\t\tsourceColumn: {col_name}")
+            table_lines.append(f'\t\tsourceColumn: "{escaped_source_col}"')
             table_lines.append(f"\t\tsummarizeBy: {summarize}\n")
 
         # Measures
@@ -121,6 +207,8 @@ class TMDLBuilder:
             m_name = m.get("name", "Metric")
             clean_dax = self._clean_and_format_dax(m.get("dax", ""), m_name=m_name)
             fmt = m.get("format", "$#,##0.00")
+            escaped_m_name = m_name.replace("'", "''")
+            escaped_fmt = fmt.replace('"', '""')
 
             # In TMDL, multi-line DAX or DAX containing VAR MUST be enclosed in triple backticks (```)
             # per Microsoft TMDL specification:
@@ -131,11 +219,11 @@ class TMDLBuilder:
             if "\n" in clean_dax or "\r" in clean_dax or "VAR " in clean_dax:
                 dax_lines = [line.strip() for line in clean_dax.splitlines() if line.strip()]
                 indented_dax = "\n".join(f"\t\t{line}" for line in dax_lines)
-                table_lines.append(f"\tmeasure '{m_name}' = ```\n{indented_dax}\n\t\t```")
+                table_lines.append(f"\tmeasure '{escaped_m_name}' = ```\n{indented_dax}\n\t\t```")
             else:
-                table_lines.append(f"\tmeasure '{m_name}' = {clean_dax}")
+                table_lines.append(f"\tmeasure '{escaped_m_name}' = {clean_dax}")
 
-            table_lines.append(f"\t\tformatString: \"{fmt}\"\n")
+            table_lines.append(f'\t\tformatString: "{escaped_fmt}"\n')
 
         # Read parquet binary and encode to base64 for self-contained zero-configuration portability
         parquet_bytes = parquet_path.read_bytes()
@@ -152,7 +240,7 @@ class TMDLBuilder:
         b64_parquet = base64.b64encode(parquet_bytes).decode("ascii")
 
         # Partition (Power Query M expression loading embedded parquet directly into memory)
-        table_lines.append(f"\tpartition '{table_name}-Partition' = m")
+        table_lines.append(f"\tpartition '{escaped_table_name}-Partition' = m")
         table_lines.append("\t\tmode: import")
         table_lines.append("\t\tsource =")
         table_lines.append("\t\t\tlet")
