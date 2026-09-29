@@ -184,11 +184,31 @@ class TMDLBuilder:
         # Sanitize time intelligence that breaks on transaction tables with duplicate dates
         clean_dax = self._sanitize_time_intelligence(clean_dax)
 
+        # Sanitize variable names so they never collide with DAX reserved keywords like 'Current'
+        clean_dax = self._sanitize_variable_names(clean_dax)
+
         # If DAX has inline VAR / RETURN statements on a single line, split them
         if "VAR " in clean_dax and "\n" not in clean_dax:
             clean_dax = clean_dax.replace(" VAR ", "\nVAR ").replace(" RETURN ", "\nRETURN ")
 
         return clean_dax
+
+    def _sanitize_variable_names(self, dax: str) -> str:
+        """
+        Ensures DAX variables do not conflict with reserved keywords like 'Current', 'Date', etc.
+        Prefixes variable declarations and usages with an underscore (e.g. VAR _Current)
+        per the official Microsoft & SQLBI DAX best practice guide.
+        """
+        # Find all variable names declared with VAR <name> =
+        var_declarations = re.findall(r"\bVAR\s+([A-Za-z0-9_]+)\s*=", dax, flags=re.IGNORECASE)
+        for var_name in var_declarations:
+            if not var_name.startswith("_"):
+                new_var_name = f"_{var_name}"
+                # Replace VAR <var_name> = with VAR _<var_name> =
+                dax = re.sub(rf"\bVAR\s+{re.escape(var_name)}\s*=", f"VAR {new_var_name} =", dax)
+                # Replace usages of <var_name> with _<var_name> (ensuring not preceded/followed by quotes or brackets)
+                dax = re.sub(rf"(?<![.'\"\[])\b{re.escape(var_name)}\b(?![.'\"\]])", new_var_name, dax)
+        return dax
 
     def generate_tmdl(
         self,

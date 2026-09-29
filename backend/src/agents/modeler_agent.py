@@ -114,12 +114,12 @@ Power BI Desktop STRICTLY FORBIDS built-in time-intelligence functions (like DAT
 "A date column containing duplicate values was specified in the call to function 'DATEADD'."
 Instead, use standard duplicate-safe DAX:
 - For Month-over-Month (MoM):
-  VAR Current = [Total Revenue]
-  VAR MaxDate = MAX('{table_name}'[date_col])
-  VAR PriorMonth = IF(MONTH(MaxDate) = 1, 12, MONTH(MaxDate) - 1)
-  VAR PriorYear = IF(MONTH(MaxDate) = 1, YEAR(MaxDate) - 1, YEAR(MaxDate))
-  VAR Prior = CALCULATE([Total Revenue], FILTER(ALL('{table_name}'), MONTH('{table_name}'[date_col]) = PriorMonth && YEAR('{table_name}'[date_col]) = PriorYear))
-  RETURN DIVIDE(Current - Prior, Prior, 0)
+  VAR _Current = [Total Revenue]
+  VAR _MaxDate = MAX('{table_name}'[date_col])
+  VAR _PriorMonth = IF(MONTH(_MaxDate) = 1, 12, MONTH(_MaxDate) - 1)
+  VAR _PriorYear = IF(MONTH(_MaxDate) = 1, YEAR(_MaxDate) - 1, YEAR(_MaxDate))
+  VAR _Prior = CALCULATE([Total Revenue], FILTER(ALL('{table_name}'), MONTH('{table_name}'[date_col]) = _PriorMonth && YEAR('{table_name}'[date_col]) = _PriorYear))
+  RETURN DIVIDE(_Current - _Prior, _Prior, 0)
 - For Cumulative / YTD:
   CALCULATE([Total Revenue], FILTER(ALLSELECTED('{table_name}'[date_col]), '{table_name}'[date_col] <= MAX('{table_name}'[date_col])))
 6. VISUAL BLUEPRINTS:
