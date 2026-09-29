@@ -233,7 +233,7 @@ class ReportLayoutBuilder:
 
         if forced_type:
             visual_type = forced_type
-        elif "trend" in title_lower or "date" in dim_lower or "month" in dim_lower or "year" in dim_lower:
+        elif "line" in chart_type_raw or "trend" in title_lower or "date" in dim_lower or "month" in dim_lower or "year" in dim_lower:
             visual_type = "lineChart"
         elif "donut" in chart_type_raw or "pie" in chart_type_raw or "share" in title_lower:
             visual_type = "donutChart"

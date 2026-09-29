@@ -87,7 +87,39 @@ class TMDLBuilder:
             flags=re.IGNORECASE
         )
 
-        # DATEADD(date_col, -1, YEAR) or SAMEPERIODLASTYEAR
+        # TOTALMTD(expr, date_col)
+        dax = re.sub(
+            r"TOTALMTD\s*\(\s*(?P<expr>[^,]+)\s*,\s*(?P<date>[^,\)]+)\s*\)",
+            r"CALCULATE(\g<expr>, FILTER(ALLSELECTED(\g<date>), MONTH(\g<date>) = MONTH(MAX(\g<date>)) && YEAR(\g<date>) = YEAR(MAX(\g<date>)) && \g<date> <= MAX(\g<date>)))",
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # DATESMTD(date_col)
+        dax = re.sub(
+            r"DATESMTD\s*\(\s*(?P<date>[^\)]+)\s*\)",
+            r"FILTER(ALLSELECTED(\g<date>), MONTH(\g<date>) = MONTH(MAX(\g<date>)) && YEAR(\g<date>) = YEAR(MAX(\g<date>)) && \g<date> <= MAX(\g<date>))",
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # TOTALQTD(expr, date_col)
+        dax = re.sub(
+            r"TOTALQTD\s*\(\s*(?P<expr>[^,]+)\s*,\s*(?P<date>[^,\)]+)\s*\)",
+            r"CALCULATE(\g<expr>, FILTER(ALLSELECTED(\g<date>), QUARTER(\g<date>) = QUARTER(MAX(\g<date>)) && YEAR(\g<date>) = YEAR(MAX(\g<date>)) && \g<date> <= MAX(\g<date>)))",
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # DATESQTD(date_col)
+        dax = re.sub(
+            r"DATESQTD\s*\(\s*(?P<date>[^\)]+)\s*\)",
+            r"FILTER(ALLSELECTED(\g<date>), QUARTER(\g<date>) = QUARTER(MAX(\g<date>)) && YEAR(\g<date>) = YEAR(MAX(\g<date>)) && \g<date> <= MAX(\g<date>))",
+            dax,
+            flags=re.IGNORECASE
+        )
+
+        # DATEADD(date_col, -1, YEAR), SAMEPERIODLASTYEAR, PREVIOUSYEAR
         def repl_dateadd_year(m):
             date_col = m.group("date").strip()
             return f"FILTER(ALL({date_col}), YEAR({date_col}) = YEAR(MAX({date_col})) - 1)"
@@ -100,6 +132,12 @@ class TMDLBuilder:
         )
         dax = re.sub(
             r"SAMEPERIODLASTYEAR\s*\(\s*(?P<date>[^\)]+)\s*\)",
+            repl_dateadd_year,
+            dax,
+            flags=re.IGNORECASE
+        )
+        dax = re.sub(
+            r"PREVIOUSYEAR\s*\(\s*(?P<date>[^\)]+)\s*\)",
             repl_dateadd_year,
             dax,
             flags=re.IGNORECASE
