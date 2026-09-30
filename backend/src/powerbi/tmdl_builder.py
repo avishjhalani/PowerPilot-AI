@@ -5,6 +5,16 @@ import base64
 import tempfile
 import duckdb
 
+DAX_RESERVED_KEYWORDS = {
+    "TOTAL", "VALUE", "DATE", "YEAR", "MONTH", "DAY", "TIME", "CURRENT",
+    "TABLE", "FILTER", "ALL", "ALLEXCEPT", "ROW", "MEASURE", "BLANK",
+    "TRUE", "FALSE", "IN", "ORDER", "RANK", "CALCULATE", "CALCULATETABLE",
+    "COUNT", "SUM", "AVERAGE", "MIN", "MAX", "DISTINCT", "VALUES",
+    "DIVIDE", "VAR", "RETURN", "IF", "SWITCH", "AND", "OR", "NOT",
+    "USERELATIONSHIP", "CROSSFILTER", "EARLIER", "EARLIEST", "FORMAT",
+    "ISBLANK", "SELECTEDVALUE", "HASONEVALUE", "RELATED", "RELATEDTABLE"
+}
+
 class TMDLBuilder:
     """
     Constructs Tabular Model Definition Language (TMDL) files for modern Power BI Projects.
@@ -275,6 +285,17 @@ class TMDLBuilder:
         seen_measures = set()
         for m in dax_measures:
             m_name = (m.get("name") or "Metric").strip()
+            if m_name.upper() in DAX_RESERVED_KEYWORDS:
+                if m_name.upper() == "TOTAL":
+                    m_name = "Total Amount"
+                elif m_name.upper() == "VALUE":
+                    m_name = "Metric Value"
+                elif m_name.upper() == "DATE":
+                    m_name = "Selected Date"
+                elif m_name.upper() == "CURRENT":
+                    m_name = "Current Value"
+                else:
+                    m_name = f"{m_name.title()} Metric"
             base_name = m_name
             counter = 2
             while m_name.lower() in seen_measures or m_name.lower() in seen_cols:

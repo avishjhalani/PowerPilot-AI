@@ -37,12 +37,22 @@ class CleanerAgent:
         self.model = DEFAULT_GROQ_MODEL
 
     def _call_llm(self, messages: List[Dict[str, str]]) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=0.1
-        )
-        return response.choices[0].message.content
+        for attempt in range(2):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.1
+                )
+                return response.choices[0].message.content
+            except Exception as e:
+                err_str = str(e).lower()
+                if ("429" in err_str or "rate limit" in err_str) and attempt == 0:
+                    import time
+                    print("⚠️ Groq rate limit in CleanerAgent. Backing off 3.5s...")
+                    time.sleep(3.5)
+                else:
+                    raise e
 
     def _clean_json_response(self, text: str) -> Dict[str, Any]:
         """Safely parses JSON even if wrapped in markdown code blocks."""
